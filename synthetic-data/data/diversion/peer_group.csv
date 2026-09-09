@@ -1,0 +1,11 @@
+peer_group_id,role,unit,description
+PG-001,RN,Med-Surg,"RN, Med-Surg"
+PG-002,RN,Burn,"RN, Burn"
+PG-003,RN,Night Shift,"RN, Night Shift"
+PG-004,RN,Day Shift,"RN, Day Shift"
+PG-005,RN,Evening,"RN, Evening"
+PG-006,Tech,Med-Surg,"Tech, Med-Surg"
+PG-007,Tech,Burn,"Tech, Burn"
+PG-008,Tech,Night Shift,"Tech, Night Shift"
+PG-009,Tech,Day Shift,"Tech, Day Shift"
+PG-010,Tech,Evening,"Tech, Evening"

@@ -1,0 +1,9 @@
+--- Huddle Discussion: 2026-09-15 ---
+[Provider transcript snippet]
+
+Patient: Elizabeth Fowler (ID: PAT-UYXU5G7D)
+Provider: FOWLER, ANGEL M
+
+"Routine follow-up visit. Stable on current medications, doing well with
+lifestyle changes we discussed last visit. Annual physical due. Patient is engaged,
+no acute concerns. Should be straightforward visit today."

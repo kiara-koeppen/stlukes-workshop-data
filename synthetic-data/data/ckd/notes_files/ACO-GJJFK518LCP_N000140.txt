@@ -1,0 +1,5 @@
+PATIENT: ACO-GJJFK518LCP
+DATE: 2025-06-15
+NOTE TYPE: Progress Note
+
+Patient ACO-GJJFK518LCP seen for routine follow-up. Renal function stable, eGFR approximately 38, creatinine 1.73 mg/dL.

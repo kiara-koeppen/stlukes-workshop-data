@@ -1,0 +1,5 @@
+PATIENT: ACO-YFSQH2BDSED
+DATE: 2026-03-22
+NOTE TYPE: Progress Note
+
+Patient ACO-YFSQH2BDSED seen for routine follow-up. Creatinine has trended up over the past year, averaging 1.3 mg/dL, with eGFR now in the 48s range on repeated outpatient draws. This is consistent with chronic kidney disease that is not yet captured on the problem list. Recommend adding CKD to the problem list and staging. No nephrology involvement to date; consider referral if progression continues.

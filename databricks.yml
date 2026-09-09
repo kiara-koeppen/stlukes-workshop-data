@@ -1,0 +1,36 @@
+# St. Luke's AI Workshop -- Synthetic Data Loader (DATA ONLY)
+#
+# One-command load of the workshop's synthetic data + files for all four use cases
+# (CKD, Medication Diversion, HTM, AI Huddle). Loads DATA ONLY -- base tables, volumes,
+# and unstructured files. Attendees build the metric views / AI functions / Genie Agents /
+# dashboards live with Genie Code during the workshop (see each use case's User Guide).
+#
+# Deploy + run:
+#   databricks bundle deploy -t workshop
+#   databricks bundle run load_workshop_data -t workshop
+#
+# The only thing to change per environment is the `catalog` variable and the target's profile/host.
+
+bundle:
+  name: stlukes-workshop-data
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: >-
+      Target Unity Catalog. The four use-case schemas (clinical, med_diversion, htm, huddle)
+      are created under it. You need CREATE SCHEMA / VOLUME / TABLE on this catalog.
+    default: healthcare_ai
+
+targets:
+  workshop:
+    default: true
+    mode: development
+    workspace:
+      # Set to your workspace host + a configured CLI profile (see the README).
+      host: https://your-workspace.cloud.databricks.com
+      profile: DEFAULT
+    variables:
+      catalog: healthcare_ai

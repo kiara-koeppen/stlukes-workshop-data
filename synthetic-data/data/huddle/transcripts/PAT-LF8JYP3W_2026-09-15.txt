@@ -1,0 +1,11 @@
+--- Huddle Discussion: 2026-09-15 ---
+[Provider transcript snippet]
+
+Patient: Jesse Flowers (ID: PAT-LF8JYP3W)
+Provider: FOWLER, ANGEL M
+
+"This patient coming in today has multiple things going on. Seen them before,
+significant medication non-compliance, frequent ER utilization. Recent job loss,
+currently unemployed. Has some untreated mental health concerns we need to address.
+I'm concerned about the psychosocial component - family situation is unstable.
+Will need a care coordination touch base to get them set up with resources."

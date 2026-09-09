@@ -1,0 +1,14 @@
+# Data-load job: runs the data-only loader notebook on serverless.
+resources:
+  jobs:
+    load_workshop_data:
+      name: "[${bundle.target}] St Lukes -- load workshop synthetic data (data only)"
+      tasks:
+        - task_key: load_data
+          notebook_task:
+            notebook_path: ../setup/00_load_workshop_data.py
+            base_parameters:
+              catalog: ${var.catalog}
+              data_dir: "" # blank = auto-detect from the deployed repo layout
+      queue:
+        enabled: true
