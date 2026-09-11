@@ -193,7 +193,20 @@ FROM read_files('/Volumes/{catalog}/huddle/landing/patient_demographics.csv', fo
 """)
 spark.sql(f"""
 CREATE OR REPLACE TABLE `{catalog}`.huddle.transcript_extractions AS
-SELECT * FROM read_files('/Volumes/{catalog}/huddle/landing/transcript_extractions.csv', format=>'csv', header=>true, inferSchema=>true, mode=>'PERMISSIVE')
+SELECT CAST(pat_id AS STRING) pat_id, CAST(huddle_date AS DATE) huddle_date,
+ CAST(source_transcript_file AS STRING) source_transcript_file,
+ CAST(visit_complexity_projection AS STRING) visit_complexity_projection,
+ CAST(provider_identified_issues AS STRING) provider_identified_issues,
+ CAST(medical_drivers AS STRING) medical_drivers,
+ CAST(patient_identified_issues AS STRING) patient_identified_issues,
+ CAST(history_of_job_modifications AS STRING) history_of_job_modifications,
+ CAST(psychosocial_complexity_projection AS STRING) psychosocial_complexity_projection,
+ CAST(social_determinants_of_health AS STRING) social_determinants_of_health,
+ CAST(hidden_contextual_factors AS STRING) hidden_contextual_factors,
+ CAST(negotiability AS STRING) negotiability,
+ CAST(relationship_context AS STRING) relationship_context,
+ CAST(relationship_equity_with_care_team AS STRING) relationship_equity_with_care_team
+FROM read_files('/Volumes/{catalog}/huddle/landing/transcript_extractions.csv', format=>'csv', header=>true, mode=>'PERMISSIVE')
 """)
 spark.sql(f"""
 CREATE OR REPLACE TABLE `{catalog}`.huddle.physician_inputs AS
@@ -209,6 +222,228 @@ ensure_volume("huddle", "transcripts")
 stage_dir("huddle", "huddle/transcripts", "transcripts")
 print("patients:", count(f"{catalog}.huddle.patient_demographics"),
       "| physician_inputs:", count(f"{catalog}.huddle.physician_inputs"))
+
+# COMMAND ----------
+
+# MAGIC %md ### 5. Metadata for AI performance -- comments + primary/foreign keys
+# MAGIC Table and column **comments** plus **PRIMARY KEY / FOREIGN KEY** constraints (informational
+# MAGIC `RELY`) give Genie, Genie Code, and AI/BI dashboards the semantics they need to write correct
+# MAGIC SQL and infer joins. This runs after the base tables are (re)created. Constraints are not
+# MAGIC enforced by Databricks (data was validated at generation time) -- `RELY` tells the optimizer
+# MAGIC and the AI tools to trust them.
+
+# COMMAND ----------
+
+def _q(s):
+    return s.replace("'", "''")
+
+# --- Table comments ---------------------------------------------------------
+TABLE_COMMENTS = {
+    "clinical.ckd_patient_registry": "CKD (chronic kidney disease) population-health registry. One row per patient, combining EHR problem-list documentation with lab-derived kidney function (serial creatinine and eGFR, microalbumin) so undocumented or under-managed CKD can be surfaced for outreach and nephrology referral.",
+    "clinical.clinical_notes": "Free-text clinical notes for registry patients. Used for AI extraction of CKD signals not captured in the structured registry. One row per note.",
+    "med_diversion.medication_activity": "Controlled-substance medication events (dispense, administer, waste, and related actions) used to detect possible drug diversion by staff. One row per medication transaction.",
+    "med_diversion.employee_risk": "Staff who handle controlled substances, with peer-group assignment and a periodic IRIS diversion-risk score. One row per employee.",
+    "med_diversion.peer_group": "Reference table defining peer groups (by role and unit) used to benchmark an employee's medication activity against similar staff. One row per peer group.",
+    "htm.medical_assets": "Inventory of medical devices managed by Healthcare Technology Management (HTM / biomed), with lifecycle dates, replacement cost, and risk score, for capital replacement planning. One row per asset.",
+    "htm.work_orders": "Maintenance work-order history for medical assets (corrective and preventive), used to analyze maintenance burden and forecast future volume. One row per work order.",
+    "huddle.patient_demographics": "Patients scheduled for a care-team daily huddle, with basic demographics and the huddle date. One row per patient per huddle.",
+    "huddle.physician_inputs": "Physician-provided huddle inputs per patient: complexity and relationship scores and the optimal vs actually-assigned care-team member. One row per patient / provider / huddle date.",
+    "huddle.transcript_extractions": "Structured factors extracted from care-team huddle meeting transcripts (barriers to care, social determinants, complexity signals). One row per patient per huddle.",
+}
+
+# --- Column comments --------------------------------------------------------
+COLUMN_COMMENTS = {
+    "clinical.ckd_patient_registry": {
+        "patient_id": "Primary key. Stable patient identifier used across the clinical schema.",
+        "patient_num": "Secondary EHR patient number (integer).",
+        "sex": "Patient sex (M/F).",
+        "dob": "Date of birth.",
+        "age": "Patient age in years.",
+        "assigned_provider_name": "Primary care provider / clinic assigned to the patient.",
+        "chronic_conditions": "Comma-separated list of documented chronic conditions.",
+        "chronic_condition_count": "Number of documented chronic conditions.",
+        "ckd_in_problem_list": "Whether CKD appears on the patient's EHR problem list (boolean).",
+        "documented_ckd": "Documented CKD status in the EHR: 'Yes', 'No', or 'None'. Compare against has_ckd to find undocumented CKD (the care gap).",
+        "creatinine_1": "Most recent serum creatinine (mg/dL).",
+        "creatinine_2": "Second most recent serum creatinine (mg/dL).",
+        "creatinine_3": "Third most recent serum creatinine (mg/dL).",
+        "gfr_1": "Most recent estimated GFR (mL/min/1.73m2). Lower values indicate worse kidney function.",
+        "gfr_2": "Second most recent estimated GFR.",
+        "gfr_3": "Third most recent estimated GFR.",
+        "microalbumin_value": "Urine microalbumin value.",
+        "microalbumin_category": "KDIGO albuminuria category (A1/A2/A3).",
+        "microalbumin_date": "Date of the microalbumin measurement.",
+        "has_ckd": "Ground-truth CKD flag derived from labs/KDIGO staging (boolean). A patient with has_ckd=true but documented_ckd not 'Yes' is an undocumented-CKD care gap.",
+        "actual_ckd_stage": "Lab-derived KDIGO CKD stage (e.g., 1, 2, 3a, 3b, 4, 5). Stage 4-5 are advanced.",
+        "sees_nephrology": "Whether the patient is under nephrology care (boolean). Advanced-stage patients not seeing nephrology are high-risk.",
+        "notes": "Short free-text note summary on the registry row.",
+        "key_meds": "Key nephrology-relevant medications for the patient.",
+    },
+    "clinical.clinical_notes": {
+        "patient_id": "Foreign key to clinical.ckd_patient_registry.patient_id.",
+        "note_id": "Primary key. Unique clinical note identifier.",
+        "note_date": "Date the note was authored.",
+        "author": "Note author (provider).",
+        "note_type": "Type of note (e.g., progress, consult).",
+        "note_text": "Free-text clinical note content used for AI extraction of CKD/nephrology signals.",
+    },
+    "med_diversion.medication_activity": {
+        "transaction_id": "Primary key. Unique medication transaction identifier.",
+        "event_datetime": "Timestamp of the medication event.",
+        "shift": "Shift during which the event occurred (day/evening/night).",
+        "employee_id": "Foreign key to med_diversion.employee_risk.employee_id. The staff member performing the action.",
+        "employee_name": "Name of the staff member.",
+        "employee_role": "Role of the staff member (e.g., RN).",
+        "department": "Department where the event occurred.",
+        "unit": "Unit where the event occurred.",
+        "patient_id": "Patient associated with the medication event.",
+        "medication": "Medication name.",
+        "med_class": "Medication class.",
+        "dea_schedule": "DEA controlled-substance schedule (e.g., CII). CII are the most tightly controlled.",
+        "event_type": "Action type: dispense, administer, waste, etc. A 'waste' with a null witness_id is unwitnessed waste (a key diversion signal).",
+        "dose_amount": "Dose amount.",
+        "dose_unit": "Dose unit (e.g., mg).",
+        "order_id": "Associated medication order id.",
+        "order_datetime": "Timestamp the order was placed.",
+        "admin_datetime": "Timestamp the medication was administered.",
+        "pain_score_before": "Patient pain score before administration (0-10).",
+        "pain_score_after": "Patient pain score after administration (0-10). No improvement after a controlled-substance admin is a diversion signal.",
+        "witness_id": "Employee id of the waste witness. NULL on a waste event = unwitnessed waste (a primary diversion signal).",
+        "off_shift_flag": "True if the event occurred outside the employee's normal shift (a diversion signal).",
+        "out_of_department_flag": "True if the event occurred outside the employee's normal department (a diversion signal).",
+    },
+    "med_diversion.employee_risk": {
+        "employee_id": "Primary key. Unique staff identifier.",
+        "employee_name": "Staff member name.",
+        "role": "Staff role (e.g., RN).",
+        "department": "Staff member's home department.",
+        "peer_group_id": "Foreign key to med_diversion.peer_group.peer_group_id. The peer cohort used for benchmarking.",
+        "iris_score": "Periodic IRIS diversion-risk score (higher = higher modeled risk).",
+        "scored_month": "Month the IRIS score applies to.",
+    },
+    "med_diversion.peer_group": {
+        "peer_group_id": "Primary key. Unique peer-group identifier.",
+        "role": "Role that defines the peer group (e.g., RN).",
+        "unit": "Unit that defines the peer group.",
+        "description": "Human-readable description of the peer group.",
+    },
+    "htm.medical_assets": {
+        "asset_number": "Primary key. Unique medical asset (device) identifier.",
+        "asset_description": "Description / type of the device (e.g., infusion pump).",
+        "manufacturer": "Device manufacturer.",
+        "model_number": "Model number.",
+        "serial_number": "Serial number.",
+        "facility": "Facility where the asset is located.",
+        "department": "Department where the asset is located.",
+        "purchase_date": "Date the asset was purchased.",
+        "install_date": "Date the asset was installed / placed in service.",
+        "support_end_date": "Manufacturer end-of-support (end-of-life) date. Assets past or near this date are replacement candidates.",
+        "operating_system": "Embedded operating system, where applicable (cybersecurity relevance).",
+        "ip_address": "Network IP address, where applicable.",
+        "mac_address": "Network MAC address, where applicable.",
+        "device_status": "Lifecycle status (e.g., active, retired).",
+        "replacement_cost": "Estimated replacement cost in USD. Sum for capital planning.",
+        "risk_score": "Composite device risk score (higher = higher priority for replacement).",
+    },
+    "htm.work_orders": {
+        "work_order_id": "Primary key. Unique work-order identifier.",
+        "asset_number": "Foreign key to htm.medical_assets.asset_number.",
+        "work_order_type": "Work order type: corrective (repair) or preventive (scheduled maintenance).",
+        "request_date": "Date the work order was requested.",
+        "completion_date": "Date the work order was completed (null if open).",
+        "technician_id": "Technician assigned to the work order.",
+        "labor_hours": "Labor hours spent on the work order.",
+        "status": "Work order status (e.g., open, closed).",
+    },
+    "huddle.patient_demographics": {
+        "pat_id": "Primary key. Stable patient identifier used across the huddle schema.",
+        "pat_name": "Patient name.",
+        "birth_date": "Date of birth.",
+        "home_phone": "Home phone number.",
+        "age": "Patient age in years.",
+        "sex": "Patient sex (M/F).",
+        "clinic": "Clinic the patient is seen at (e.g., Nampa).",
+        "huddle_date": "Date of the care-team huddle the patient is scheduled for.",
+        "scheduled_visit_reason": "Reason for the scheduled visit.",
+    },
+    "huddle.physician_inputs": {
+        "pat_id": "Part of the primary key and a foreign key to huddle.patient_demographics.pat_id.",
+        "huddle_date": "Part of the primary key. Date of the huddle.",
+        "provider_id": "Part of the primary key. Provider giving the input.",
+        "provider_name": "Provider name.",
+        "provider_patient_relationship_score": "Physician-rated provider-patient relationship strength (-10 to 10).",
+        "patient_complexity_score": "Physician-rated patient complexity (higher = more complex).",
+        "physician_notes": "Free-text physician notes for the huddle.",
+        "optimal_team_member": "The care-team member the physician judges is the best fit for this patient.",
+        "assigned_team_member": "The care-team member actually assigned. When it differs from optimal_team_member, the assignment is non-optimal.",
+        "non_optimal_assignment_notes": "Explanation when the assignment is not the optimal team member.",
+        "created_at": "Timestamp the input was recorded.",
+    },
+    "huddle.transcript_extractions": {
+        "pat_id": "Part of the primary key and a foreign key to huddle.patient_demographics.pat_id.",
+        "huddle_date": "Part of the primary key. Date of the huddle.",
+        "source_transcript_file": "Filename of the huddle transcript the factors were extracted from.",
+        "visit_complexity_projection": "Extracted projection of visit complexity.",
+        "provider_identified_issues": "Issues the provider raised in the huddle.",
+        "medical_drivers": "Medical drivers of complexity discussed.",
+        "patient_identified_issues": "Issues the patient raised.",
+        "history_of_job_modifications": "Any history of work/job modifications discussed.",
+        "psychosocial_complexity_projection": "Extracted projection of psychosocial complexity.",
+        "social_determinants_of_health": "Social determinants of health (SDOH) mentioned (e.g., transportation, housing).",
+        "hidden_contextual_factors": "Hidden contextual factors surfaced in discussion.",
+        "negotiability": "Extracted assessment of care-plan negotiability.",
+        "relationship_context": "Context on the patient's relationship with the care team.",
+        "relationship_equity_with_care_team": "Extracted assessment of relationship equity with the care team.",
+    },
+}
+
+# --- Primary keys: (table, [key columns]) -----------------------------------
+PRIMARY_KEYS = [
+    ("clinical.ckd_patient_registry", ["patient_id"]),
+    ("clinical.clinical_notes", ["note_id"]),
+    ("med_diversion.medication_activity", ["transaction_id"]),
+    ("med_diversion.employee_risk", ["employee_id"]),
+    ("med_diversion.peer_group", ["peer_group_id"]),
+    ("htm.medical_assets", ["asset_number"]),
+    ("htm.work_orders", ["work_order_id"]),
+    ("huddle.patient_demographics", ["pat_id"]),
+    ("huddle.physician_inputs", ["pat_id", "provider_id", "huddle_date"]),
+    ("huddle.transcript_extractions", ["pat_id", "huddle_date"]),
+]
+
+# --- Foreign keys: (child, [child cols], parent, [parent cols]) --------------
+FOREIGN_KEYS = [
+    ("clinical.clinical_notes", ["patient_id"], "clinical.ckd_patient_registry", ["patient_id"]),
+    ("med_diversion.medication_activity", ["employee_id"], "med_diversion.employee_risk", ["employee_id"]),
+    ("med_diversion.employee_risk", ["peer_group_id"], "med_diversion.peer_group", ["peer_group_id"]),
+    ("htm.work_orders", ["asset_number"], "htm.medical_assets", ["asset_number"]),
+    ("huddle.physician_inputs", ["pat_id"], "huddle.patient_demographics", ["pat_id"]),
+    ("huddle.transcript_extractions", ["pat_id"], "huddle.patient_demographics", ["pat_id"]),
+]
+
+# Apply table + column comments
+for tbl, c in TABLE_COMMENTS.items():
+    spark.sql(f"COMMENT ON TABLE `{catalog}`.{tbl} IS '{_q(c)}'")
+for tbl, cols in COLUMN_COMMENTS.items():
+    for col, c in cols.items():
+        spark.sql(f"ALTER TABLE `{catalog}`.{tbl} ALTER COLUMN {col} COMMENT '{_q(c)}'")
+
+# Apply primary keys (columns must be NOT NULL first). RELY = trusted by optimizer + AI tools.
+for tbl, cols in PRIMARY_KEYS:
+    for col in cols:
+        spark.sql(f"ALTER TABLE `{catalog}`.{tbl} ALTER COLUMN {col} SET NOT NULL")
+    cname = tbl.split(".")[-1] + "_pk"
+    spark.sql(f"ALTER TABLE `{catalog}`.{tbl} DROP CONSTRAINT IF EXISTS {cname}")
+    spark.sql(f"ALTER TABLE `{catalog}`.{tbl} ADD CONSTRAINT {cname} PRIMARY KEY ({', '.join(cols)}) RELY")
+
+# Apply foreign keys (parent PKs now exist). RELY so Genie/optimizer infer the joins.
+for child, ccols, parent, pcols in FOREIGN_KEYS:
+    cname = child.split(".")[-1] + "_" + ccols[0] + "_fk"
+    spark.sql(f"ALTER TABLE `{catalog}`.{child} DROP CONSTRAINT IF EXISTS {cname}")
+    spark.sql(f"ALTER TABLE `{catalog}`.{child} ADD CONSTRAINT {cname} FOREIGN KEY ({', '.join(ccols)}) "
+              f"REFERENCES `{catalog}`.{parent} ({', '.join(pcols)}) RELY")
+
+print("Applied table/column comments + PRIMARY KEY / FOREIGN KEY (RELY) constraints to all base tables.")
 
 # COMMAND ----------
 
